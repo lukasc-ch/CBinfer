@@ -1,0 +1,2 @@
+*.net filter=lfs diff=lfs merge=lfs -text
+*.nvvp filter=lfs diff=lfs merge=lfs -text
