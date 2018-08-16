@@ -4,8 +4,7 @@
 # CBinfer: Change-Based Inference for Convolutional Neural Networks on Video Data 
 
 In this repository, we share a PyTorch-compatible implementation of our work called CBinfer. 
-For details, please refer to the paper available at [ACM](https://doi.org/10.1145/3131885.3131906) 
-and [arXiv](https://arxiv.org/abs/1704.04313). 
+For details, please refer to the papers below. 
 
 If this code proves useful for your research, please cite
 > Lukas Cavigelli, Luca Benini,  
