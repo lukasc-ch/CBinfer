@@ -10,7 +10,7 @@ If this code proves useful for your research, please cite
 > Lukas Cavigelli, Luca Benini,  
 "CBinfer: Exploiting Frame-to-Frame Locality for Faster Convolutional Network Inference on Video Streams",  
 submitted to IEEE Transactions on Circuits and Systems for Video Technology, 2018.  
-DOI (preprint): [10.3929/ethz-b-000282732](https://www.research-collection.ethz.ch/handle/20.500.11850/282732)
+DOI (preprint): [10.3929/ethz-b-000282732](https://www.research-collection.ethz.ch/handle/20.500.11850/282732). Available on [arXiv](https://arxiv.org/pdf/1808.05488). 
 
 and/or
 > Lukas Cavigelli, Philippe Degen, Luca Benini,  
