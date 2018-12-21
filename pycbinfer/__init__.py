@@ -8,13 +8,14 @@ from .conv2d import CBConv2d
 from .conv2d import CBPoolMax2d
 
 def subsitute(node, threshold=1e-1, finegrained=False):
+    print(type(node))
     if type(node) is torch.nn.modules.conv.Conv2d:
-        print('replacing conv2d')
-        m = CBConv2d(node, threshold)
-        m.finegrained = finegrained
-        return m, True
-    else:
-        return node, False
+        if node.dilation == (1,1) and node.stride == (1,1):
+            print('replacing conv2d')
+            m = CBConv2d(node, threshold)
+            m.finegrained = finegrained
+            return m, True
+    return node, False
 
 
 def convertRecur(m, ignoreList=[], threshold=1e-1, finegrained=False): # ignoreList= [model.model_cpu_net.Lambda]

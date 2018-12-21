@@ -101,7 +101,7 @@ class CBConv2d(nn.Module):
         self.in_channels = m.in_channels
         self.out_channels = m.out_channels
 
-        assert(m.weight is not None and m.bias is not None)
+        assert(m.weight is not None)# and m.bias is not None)
         self.weight = m.weight
         self.bias = m.bias
 
@@ -141,11 +141,12 @@ class CBConv2d(nn.Module):
             del self.prevOutput
             self.register_buffer('prevOutput', tmp)
         if type(self.prevOutput) != type(self.prevInput):
-            self.prevOutput = self.prevOutput.type_as(self.prevInput)
+            self.prevOutput = self.prevOutput.type_as(self.prevInput)            
             
-            
-        self.prevInput.fill_(-1e100).resize_(0) 
-        self.prevOutput.fill_(-1e100).resize_(0)
+        self.prevInput.fill_(-float('inf')).resize_(0) 
+        self.prevOutput.fill_(-float('inf')).resize_(0)
+#        self.prevInput.fill_(-1e100).resize_(0) 
+#        self.prevOutput.fill_(-1e100).resize_(0)
         if hasattr(self, 'compStats'):
             self.compStats = None
             
@@ -203,10 +204,14 @@ class CBConv2d(nn.Module):
             #additional opt. would be to act on input pixel instead of affected output pixels
             changeTensor = (input - self.prevInput).abs().gt(self.threshold)
             proped = torch.nn.functional.conv2d(
-                            torch.nn.functional.Variable(changeTensor.float()), 
-                            torch.nn.functional.Variable(changeTensor.new(
-                                    changeTensor.size(-3),1,self.weight.size(2),self.weight.size(3)).fill_(1).float()), 
+                            changeTensor.float(), 
+                            changeTensor.new(changeTensor.size(-3),1,self.weight.size(2),self.weight.size(3)).fill_(1).float(), 
                             groups=changeTensor.size(-3)).data.gt(0)
+#            proped = torch.nn.functional.conv2d(
+#                            torch.nn.functional.Variable(changeTensor.float()), 
+#                            torch.nn.functional.Variable(changeTensor.new(
+#                                    changeTensor.size(-3),1,self.weight.size(2),self.weight.size(3)).fill_(1).float()), 
+#                            groups=changeTensor.size(-3)).data.gt(0)
             opsPerValue = self.weight.size(0)*self.weight.size(2)*self.weight.size(3)*2
             compStats = dict(
                 numInputChangesPerFeatureMap = changeTensor.sum()*opsPerValue, # no. of Ops with FG FM&SP inference
@@ -243,7 +248,10 @@ class CBConv2d(nn.Module):
                                      useHalf=(type(self.prevInput) == torch.cuda.HalfTensor))
             else:
                 Xmatrix = genXMatrix_python(self.prevInput, changeIndexes, self.kernel_size)
-            Ymatrix = matrixMult_python(Xmatrix, self.weight.data, self.bias.data)
+            if self.bias is None: 
+                Ymatrix = matrixMult_python(Xmatrix, self.weight.data, None)
+            else:
+                Ymatrix = matrixMult_python(Xmatrix, self.weight.data, self.bias.data)
             Ymatrix = Ymatrix.transpose(0,1)
             if self.prevInput.is_cuda:
                 output = updateOutput(Ymatrix, changeIndexes, self.prevOutput, 
@@ -254,9 +262,11 @@ class CBConv2d(nn.Module):
             self.prevOutput = output # not needed, since internally prevOutput is updated and output = self.prevOutput
     
         if self.propChangeIndexes:
-            return 'changeIndexes', F.Variable(self.prevOutput), F.Variable(changeIndexes)
+            return 'changeIndexes', self.prevOutput, changeIndexes
+#            return 'changeIndexes', F.Variable(self.prevOutput), F.Variable(changeIndexes)
         else:
-            return F.Variable(self.prevOutput)
+            return self.prevOutput
+#            return F.Variable(self.prevOutput) 
         
     def forward(self, inp):
         

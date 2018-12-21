@@ -343,7 +343,9 @@ def matrixMult_python(Xmatrix, weights, bias, activFun=None):
     if Xmatrix.numel() == 0:
         return Xmatrix.clone()
     
-    Ymatrix = Xmatrix.matmul(weights.view(weights.size(0),-1).transpose(0,1)).add_(bias) 
+    Ymatrix = Xmatrix.matmul(weights.view(weights.size(0),-1).transpose(0,1))
+    if bias is not None:
+        Ymatrix.add_(bias) 
     if activFun is not None:
         Ymatrix = activFun(F.Variable(Ymatrix), inplace=True).data
     return Ymatrix
