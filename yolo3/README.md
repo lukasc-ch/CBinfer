@@ -1,3 +1,9 @@
+python video_demo.py --video=./dataset-objectDetection/videos/traffic-video.mp4 --model=cbModelTest.pt
+
+
+
+
+
 
 This is based on the repo at https://github.com/ayooshkathuria/pytorch-yolo-v3
 Thanks for sharing the code!

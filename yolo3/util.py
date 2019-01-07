@@ -130,7 +130,7 @@ def write_results(prediction, confidence, num_classes, nms = True, nms_conf = 0.
         #Get the class having maximum score, and the index of that class
         #Get rid of num_classes softmax scores 
         #Add the class index and the class score of class having maximum score
-        max_conf, max_conf_score = torch.max(image_pred[:,5:5+ num_classes], 1)
+        max_conf, max_conf_score = torch.max(image_pred[:,5:5+num_classes], 1)
         max_conf = max_conf.float().unsqueeze(1)
         max_conf_score = max_conf_score.float().unsqueeze(1)
         seq = (image_pred[:,:5], max_conf, max_conf_score)

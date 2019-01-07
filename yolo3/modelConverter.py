@@ -23,8 +23,8 @@ batch_size = int(args.bs)
 confidence = float(args.confidence)
 nms_thesh = float(args.nms_thresh)
 
-num_classes = 80
-classes = util.load_classes('data/coco.names') 
+#num_classes = 80
+#classes = util.load_classes('data/coco.names') 
 
 
 
@@ -52,17 +52,21 @@ def loadModel():
 modelBaseline = loadModel()
 modelTest = loadModel()
 
+modelTest.mergeLayers()
 #modify network
 moduleList = modelTest.module_list
-for i in range(len(moduleList)):
-    m = moduleList[i]
-    assert(type(m) == torch.nn.Sequential)
-    moduleList[i] = pycbinfer.convert(m)
-    #TODO: merge conv2d and BN(!!!)
+convertToCBinfer = True
+if convertToCBinfer:
+    for i in range(len(moduleList)):
+        m = moduleList[i]
+        if isinstance(m, torch.nn.Sequential):
+            moduleList[i] = pycbinfer.convert(m, threshold=1e-2)
+            #TODO: merge conv2d and BN(!!!)
+#moduleList[0] = pycbinfer.convert(moduleList[0], threshold=1e-2)
 modelTest.timed = False
+    
 
-
-print(modelTest)
+#print(modelTest)
 
 
 #modelTest = op.PoseModel.fromFile(T=T)
@@ -97,33 +101,40 @@ def getCBModuleList(model):
     
 #cbModuleList = getCBModuleListTwolevel(modelTest)
 cbModuleList = getCBModuleList(modelTest)
-
+for m in cbModuleList:
+    m.threshold = 0.0
 
 #%% DEFINE SETUP (PREPROC, MODEL APPL., EVALUATION, DATA SET)
 #   =========================================================
 #@lru_cache(maxsize=100)
-def preprocessor(img):
-    return img.unsqueeze(0)#torch.from_numpy(img).float().cuda()#img#poseDetTest.preprocess(img).unsqueeze(0)
+import objDetEvaluator
+ode = objDetEvaluator.ObjDetEvaluator(modelTest, modelBaseline, True, False)
+preprocessor = ode.preprocessor
+modelApply = ode.modelApply
+evaluator = ode.evaluator
+targetGenerator = ode.targetGenerator
+#def preprocessor(img):
+#    return img.unsqueeze(0)#torch.from_numpy(img).float().cuda()#img#poseDetTest.preprocess(img).unsqueeze(0)
 
-def modelApply(inp, model):
-    global paf, heatmap
-    inVar = torch.autograd.Variable(inp).cuda()
-    outVar = model(inVar)
-    return outVar.data#torch.cat([paf.data, heatmap.data], dim=-3)
-
-def evaluator(outTest, target):
-    outTest = outTest.data.cpu()#torch.cat(outTest, dim=-3).data.cpu() # pafTest, heatmapTest = outTest
-    target = target.data.cpu()#torch.cat(target, dim=-3)
-    diff = outTest - target
-    mse = diff.pow_(2).mean()
-    return mse
+#def modelApply(inp, model):
+#    global paf, heatmap
+#    inVar = torch.autograd.Variable(inp).cuda()
+#    outVar = model(inVar)
+#    return outVar.data#torch.cat([paf.data, heatmap.data], dim=-3)
+#
+#def evaluator(outTest, target):
+#    outTest = outTest.data.cpu()#torch.cat(outTest, dim=-3).data.cpu() # pafTest, heatmapTest = outTest
+#    target = target.data.cpu()#torch.cat(target, dim=-3)
+#    diff = outTest - target
+#    mse = diff.pow_(2).mean()
+#    return mse
 
 import videoSequenceReader as vidSeqReader
 
-def targetGenerator(frame):
-    feedData = preprocessor(frame)
-    target = modelApply(feedData, modelBaseline).cpu()
-    return target
+#def targetGenerator(frame):
+#    feedData = preprocessor(frame)
+#    target = modelApply(feedData, modelBaseline).cpu()
+#    return target
     
 
 
@@ -134,7 +145,7 @@ def targetGenerator(frame):
 
 # modify model to test / experiments
 for m in cbModuleList:
-    m.feedbackLoop = True
+    m.feedbackLoop = False#True
        
     
 #%% RUN THRESHOLD SELECTION
@@ -145,84 +156,90 @@ if experimentIdx <= 10:
     pycbinfer.tuneThresholdParameters(
             vidSeqReader, 
     #        evalSequences=['2DiQUX11YaY-720p-seq000-twoDancers-hfr'], 
-            evalSequences=['seq01'], 
+            evalSequences=['seq20'], 
+#            evalSequences=['seq01'],
             numFramesPerSeq=10, 
             targetGenerator=targetGenerator, preprocessor=preprocessor, 
             modelBaseline=modelBaseline, modelTest=modelTest, evaluator=evaluator, 
             cbModuleList=cbModuleList, 
-            lossToleranceList=[5e-5]*(1 if len(cbModuleList)>0 else 0) + [2e-6]*(len(cbModuleList)-1),
-            initThreshold=5e-2, 
+#            lossToleranceList=[5e-5]*(1 if len(cbModuleList)>0 else 0) + [2e-6]*(len(cbModuleList)-1),
+#            lossToleranceList=[1e-5]*(1 if len(cbModuleList)>0 else 0) + [2e-6/5.0]*(len(cbModuleList)-1),
+#            lossToleranceList=[5e-5]*(1 if len(cbModuleList)>0 else 0) + [2e-6]*(len(cbModuleList)-1),
+            lossToleranceList=[1e-4]*(1 if len(cbModuleList)>0 else 0) + [2e-5/5.0]*(len(cbModuleList)-1),
+#            initThreshold=1e-2, # for IoU, MSE
+            initThreshold=1e-3, # for objectness>0.5 MSE
             thresholdIncrFactor=1.2)
 
+#pycbinfer.clearMemory(modelTest); torch.save(modelTest, 'cbModelTest.pt')
+#torch.save(modelBaseline, 'cbModelBaseline.pt')
+    
+    
     #%% - HIERARCHICAL
-elif experimentIdx == 11:
-        
-    def tuneModules(modelTest, cbModuleList, lossToleranceList):
-            pycbinfer.tuneThresholdParameters(
-                vidSeqReader, 
-        #        evalSequences=['2DiQUX11YaY-720p-seq000-twoDancers-hfr'], 
-                evalSequences=['2DiQUX11YaY-720p-seq000-twoDancers'], 
-                numFramesPerSeq=10, 
-                targetGenerator=targetGenerator, preprocessor=preprocessor, 
-                modelBaseline=modelBaseline, modelTest=modelTest, evaluator=evaluator, 
-                cbModuleList=cbModuleList, 
-                lossToleranceList=lossToleranceList,
-                initThreshold=5e-2, 
-                thresholdIncrFactor=1.2)
-        
-    def getThresholds(moduleList):
-        return [m.threshold for m in moduleList]
-        
-    def setThresholds(moduleList, thresholdList):
-        # if threholdList is a single value, apply it for all elements
-        if type(thresholdList) is not list:
-            thresholdList = [thresholdList]*len(moduleList)
-        assert(len(moduleList) == len(thresholdList))
-        
-        for m, th in zip(moduleList, thresholdList):
-            m.threshold = th
-    
-    for m in cbModuleList:
-        m.threshold = 0
-        
-        
-    lossTolFirst = 5e-5
-    lossTolDefault = 2e-6
-        
-    # tune model0 and model1_1    
-    cbModuleListTmp = getCBModuleList(modelTest.model0) + getCBModuleList(modelTest.model1_1)
-    tuneModules(modelTest, cbModuleListTmp, lossTolFirst + lossTolDefault*(len(cbModuleListTmp)-1))
-    
-    # store an clear threshold for model1_1 for later restoring
-    cbModuleList_1_1 = getCBModuleList(modelTest.model1_1)
-    thresholds_1_1 = getThresholds(cbModuleList_1_1)
-    setThresholds(cbModuleList_1_1, 0)
-    # tune model1_2
-    cbModuleListTmp = getCBModuleList(modelTest.model1_2)
-    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
-    #restore thresholds of model1_1
-    setThresholds(cbModuleList_1_1, thresholds_1_1)
-    
-    # tune model2_1    
-    cbModuleListTmp = getCBModuleList(modelTest.model2_1)
-    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
-    
-    # store an clear threshold for model2_1 for later restoring
-    cbModuleList_2_1 = getCBModuleList(modelTest.model2_1)
-    thresholds_2_1 = getThresholds(cbModuleList_2_1)
-    setThresholds(cbModuleList_2_1, 0)
-    # tune model2_2
-    cbModuleListTmp = getCBModuleList(modelTest.model2_2)
-    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
-    #restore thresholds of model2_1
-    setThresholds(cbModuleList_2_1, thresholds_2_1)
+#elif experimentIdx == 11:
+#        
+#    def tuneModules(modelTest, cbModuleList, lossToleranceList):
+#            pycbinfer.tuneThresholdParameters(
+#                vidSeqReader, 
+#        #        evalSequences=['2DiQUX11YaY-720p-seq000-twoDancers-hfr'], 
+#                evalSequences=['2DiQUX11YaY-720p-seq000-twoDancers'], 
+#                numFramesPerSeq=10, 
+#                targetGenerator=targetGenerator, preprocessor=preprocessor, 
+#                modelBaseline=modelBaseline, modelTest=modelTest, evaluator=evaluator, 
+#                cbModuleList=cbModuleList, 
+#                lossToleranceList=lossToleranceList,
+#                initThreshold=5e-2, 
+#                thresholdIncrFactor=1.2)
+#        
+#    def getThresholds(moduleList):
+#        return [m.threshold for m in moduleList]
+#        
+#    def setThresholds(moduleList, thresholdList):
+#        # if threholdList is a single value, apply it for all elements
+#        if type(thresholdList) is not list:
+#            thresholdList = [thresholdList]*len(moduleList)
+#        assert(len(moduleList) == len(thresholdList))
+#        
+#        for m, th in zip(moduleList, thresholdList):
+#            m.threshold = th
+#    
+#    for m in cbModuleList:
+#        m.threshold = 0
+#        
+#        
+#    lossTolFirst = 5e-5
+#    lossTolDefault = 2e-6
+#        
+#    # tune model0 and model1_1    
+#    cbModuleListTmp = getCBModuleList(modelTest.model0) + getCBModuleList(modelTest.model1_1)
+#    tuneModules(modelTest, cbModuleListTmp, lossTolFirst + lossTolDefault*(len(cbModuleListTmp)-1))
+#    
+#    # store an clear threshold for model1_1 for later restoring
+#    cbModuleList_1_1 = getCBModuleList(modelTest.model1_1)
+#    thresholds_1_1 = getThresholds(cbModuleList_1_1)
+#    setThresholds(cbModuleList_1_1, 0)
+#    # tune model1_2
+#    cbModuleListTmp = getCBModuleList(modelTest.model1_2)
+#    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
+#    #restore thresholds of model1_1
+#    setThresholds(cbModuleList_1_1, thresholds_1_1)
+#    
+#    # tune model2_1    
+#    cbModuleListTmp = getCBModuleList(modelTest.model2_1)
+#    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
+#    
+#    # store an clear threshold for model2_1 for later restoring
+#    cbModuleList_2_1 = getCBModuleList(modelTest.model2_1)
+#    thresholds_2_1 = getThresholds(cbModuleList_2_1)
+#    setThresholds(cbModuleList_2_1, 0)
+#    # tune model2_2
+#    cbModuleListTmp = getCBModuleList(modelTest.model2_2)
+#    tuneModules(modelTest, cbModuleListTmp, lossTolDefault)
+#    #restore thresholds of model2_1
+#    setThresholds(cbModuleList_2_1, thresholds_2_1)
 
 else:
     assert(False)
 
-
-#torch.save(modelTest, 'cbModelTest.pt')
-#torch.save(modelBaseline, 'cbModelBaseline.pt')
 
 #visualize first change map: plt.imshow(poseModel.model0[0].changeMap.cpu().float().numpy())
 

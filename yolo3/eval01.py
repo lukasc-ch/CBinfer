@@ -6,7 +6,7 @@ import evalTools
 import objDetEvaluator
 #evaluator = objDetEvaluator.ObjDetEvaluator
 ##from poseDetEvaluator import PoseDetectionEvaluator
-
+import pycbinfer
 import torch
 
 #%% load models and convert to CBinfer
@@ -34,15 +34,17 @@ frameset, target = vsr.getDataFrames(seqName=seqName, numFrames=10) # load frame
 
 #%% throughput sweep evaluations
 #sweep parameters
-thresholdFactors = [f/5 for f in range(21)]
-thresholdOneIdx = 5
+thresholdOneIdx = 1
+thresholdFactors = [f/thresholdOneIdx for f in range(21)]
 
 numIter = 1#2 # number of measurement iterations
 measurePower = True and tx2power.powerSensorsPresent()
 numFramesForPowerMeasurement = 100
 cbconvThresholds = list(map(lambda m: m.threshold, cbconvModules))
 #seqNames = vsr.getSequenceNames(validationSetOnly=True)
-seqNames = ['seq01']#, 'seq02']
+#seqNames = ['seq20']#['seq10a','seq03a','seq01a']#, 'seq02']
+seqNames = ['seq01', 'seq02', 'seq20', 'seq21', 'seq30', 'seq31']
+#seqNames = ['seq01', 'seq02', 'seq20', 'seq21', 'seq30', ]
 #measure reference (cuDNN) throughput
 frameset, target = vsr.getDataFrames(seqName=seqNames[0], numFrames=5)
 execTimeRef = evalTools.inferFramesetBenchmark(modelBaseline, frameset, numIter=numIter, 
@@ -117,7 +119,7 @@ for seqIdx, seqName in enumerate(seqNames):
             print('throughput (seq: %s, th:%0.2f) -- ref: %0.2fms (%0.2f fps), CB: %0.2fms (%0.2f fps), speed-up: %0.2fx' 
                   % (result.seqName, result.th, 
                      result.execTimeRef*1e3, 1/result.execTimeRef, 
-                     result.execTime*1e3, 1/result.execTime, 
+                     result.execTime*1e3, 1/result.execTime,    
                      result.execTimeRef/result.execTime)) 
         
     resultsBySeq.append(resultsByThreshold)
@@ -265,7 +267,7 @@ if True:
     
     
 #%% export files
-exportFiles = False
+exportFiles = True
 if exportFiles:
     from tabulate import tabulate
     import csv
@@ -283,8 +285,8 @@ if exportFiles:
     header = ['th', 'lossIncr', 'numGOps', 'throughput', 'speedup', 'throughputBaseline']
     for i, (seqName, resultsByThreshold) in enumerate(zip(seqNames, resultsBySeq)):
         tbl = list(zip(*[thresholdFactors,
-                         [(r.loss-r.lossRef) for r in resultsByThreshold],
-                         [getNumOps(r)*1e-9 for r in resultsByThreshold],
+                         [(r.loss-r.lossRef).item() for r in resultsByThreshold],
+                         [getNumOps(r).item()*1e-9 for r in resultsByThreshold],
                          [1/r.execTime for r in resultsByThreshold],
                          [execTimeRef/r.execTime for r in resultsByThreshold],
                          [1/execTimeRef for r in resultsByThreshold],
@@ -295,9 +297,9 @@ if exportFiles:
             csv.writer(csvfile).writerows([header]+tbl)
     
     # 2nd plot with per-layer and by-threhold number of OPs
-    seqIdx = 2
+    seqIdx = 0
     seqName, resultsByTh = seqNames[seqIdx], resultsBySeq[seqIdx]
-    numOps_CG = [[e['numInputPropedChanges'] for e in resByTh.compStats] for resByTh in resultsByTh]
+    numOps_CG = [[e['numInputPropedChanges'].item() for e in resByTh.compStats] for resByTh in resultsByTh]
     numOps_CG = list(zip(*numOps_CG))
     with open('results/eval02-%s.csv' % seqName, 'w', newline='') as csvfile:
         csv.writer(csvfile).writerows(zip(*([thresholdFactors] + numOps_CG)))

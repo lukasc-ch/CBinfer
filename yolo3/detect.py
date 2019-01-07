@@ -173,6 +173,8 @@ if __name__ ==  '__main__':
         #loops are slower than vectorised operations. 
         
         prediction = write_results(prediction, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+#        if ind == 3:
+#            predB = prediction
         
         if type(prediction) == int:
             continue

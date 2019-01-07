@@ -11,29 +11,6 @@ from util import count_parameters as count
 from util import convert2cpu as cpu
 from util import predict_transform
 
-class test_net(nn.Module):
-    def __init__(self, num_layers, input_size):
-        super(test_net, self).__init__()
-        self.num_layers= num_layers
-        self.linear_1 = nn.Linear(input_size, 5)
-        self.middle = nn.ModuleList([nn.Linear(5,5) for x in range(num_layers)])
-        self.output = nn.Linear(5,2)
-    
-    def forward(self, x):
-        x = x.view(-1)
-        fwd = nn.Sequential(self.linear_1, *self.middle, self.output)
-        return fwd(x)
-        
-def get_test_input():
-    img = cv2.imread("dog-cycle-car.png")
-    img = cv2.resize(img, (416,416)) 
-    img_ =  img[:,:,::-1].transpose((2,0,1))
-    img_ = img_[np.newaxis,:,:,:]/255.0
-    img_ = torch.from_numpy(img_).float()
-    img_ = Variable(img_)
-    return img_
-
-
 def parse_cfg(cfgfile):
     """
     Takes a configuration file
@@ -66,7 +43,7 @@ def parse_cfg(cfgfile):
     return blocks
 #    print('\n\n'.join([repr(x) for x in blocks]))
 
-import pickle as pkl
+#import pickle as pkl
 
 class MaxPoolStride1(nn.Module):
     def __init__(self, kernel_size):
@@ -357,6 +334,67 @@ class Darknet(nn.Module):
         
         
         return scale_inds
+    
+    def mergeLayers(self):
+        
+        blks = self.blocks[1:]
+        setOfOutputs = set()
+        for i in range(len(blks)): 
+            blk = blks[i]
+            blk_type = (blk["type"])
+            if blk_type == "route":
+                layers = blk["layers"]
+                layers = [int(a) for a in layers]
+                
+                if (layers[0]) > 0:
+                    layers[0] = layers[0] - i
+        
+                if len(layers) == 1:
+                    setOfOutputs.add(i + layers[0])
+        
+                else:
+                    if (layers[1]) > 0:
+                        layers[1] = layers[1] - i
+                    setOfOutputs.add(i + layers[0])
+                    setOfOutputs.add(i + layers[1])
+            elif blk_type == "shortcut":
+                from_ = int(blk["from"])
+                setOfOutputs.add(i + from_)
+#        print('===== set of outputs =====')
+#        print(setOfOutputs)
+#        print('==========================')
+        
+        
+        merging = False
+        mergingModule = None
+        for i in range(len(blks)): 
+            blk = blks[i]
+            blk_type = (blk["type"])
+            module = self.module_list[i]
+            if i-1 in setOfOutputs:
+                merging = False
+            if blk_type == "convolutional": ## TODO: AND IT IS NOT AN OUTPUT OR USED AS SKIP CONNECTION!!!!!!!
+                assert(isinstance(module, torch.nn.Sequential))
+                if merging == False:
+                    merging = True
+                    mergingModule = module
+                    blk['type'] = "multiconv"
+                else:
+                    for n, c in module.named_children():
+                        mergingModule.add_module(n, c)
+                    blk['type'] = "identity"
+                    self.module_list[i] = EmptyLayer()
+            else:
+                merging = False
+#            
+#            
+#            if module_type == "convolutional" or module_type == "upsample" or module_type == "maxpool" or module_type == "multiconv":
+#                
+#                x = self.module_list[i](x)
+                
+                
+        
+        
 
                 
     def forward(self, x):
@@ -369,11 +407,14 @@ class Darknet(nn.Module):
         for i in range(len(modules)):        
             
             module_type = (modules[i]["type"])
-            if module_type == "convolutional" or module_type == "upsample" or module_type == "maxpool":
+            if module_type == "convolutional" or module_type == "upsample" or module_type == "maxpool" or module_type == "multiconv":
                 
                 x = self.module_list[i](x)
                 outputs[i] = x
 
+            elif module_type == "identity":
+                outputs[i] = outputs[i-1]
+                
                 
             elif module_type == "route":
                 layers = modules[i]["layers"]
@@ -428,7 +469,8 @@ class Darknet(nn.Module):
                     detections = torch.cat((detections, x), 1)
                 
                 outputs[i] = outputs[i-1]
-                
+            else:
+                assert(False)
         
         
         try:

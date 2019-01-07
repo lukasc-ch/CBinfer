@@ -12,20 +12,8 @@ import pandas as pd
 import random 
 import pickle as pkl
 import argparse
-
-
-def get_test_input(input_dim, CUDA):
-    img = cv2.imread("dog-cycle-car.png")
-    img = cv2.resize(img, (input_dim, input_dim)) 
-    img_ =  img[:,:,::-1].transpose((2,0,1))
-    img_ = img_[np.newaxis,:,:,:]/255.0
-    img_ = torch.from_numpy(img_).float()
-    img_ = Variable(img_)
-    
-    if CUDA:
-        img_ = img_.cuda()
-    
-    return img_
+import evalTools
+import pycbinfer
 
 def prep_image(img, inp_dim):
     """
@@ -75,6 +63,9 @@ def arg_parse():
     parser.add_argument("--weights", dest = 'weightsfile', help = 
                         "weightsfile",
                         default = "yolov3.weights", type = str)
+    parser.add_argument("--model", dest = 'model', help = 
+                        "torch model (e.g. w/ cbinfer)",
+                        default = 'cbModelTest.pt', type = str)
     parser.add_argument("--reso", dest = 'reso', help = 
                         "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
                         default = "416", type = str)
@@ -88,33 +79,43 @@ if __name__ == '__main__':
     start = 0
 
     CUDA = torch.cuda.is_available()
-    
     device = torch.device("cuda:0" if CUDA else "cpu")
 
     num_classes = 80
-
-    
     bbox_attrs = 5 + num_classes
     
     print("Loading network.....")
-    model = Darknet(args.cfgfile)
-    model.load_weights(args.weightsfile)
+    if args.model == '':#!!!!
+        print('creating NORMAL network')
+        model = Darknet(args.cfgfile)
+        model.load_weights(args.weightsfile)
+    else:
+        print('creating CBINFER network')
+        model = torch.load(args.model)
     print("Network successfully loaded")
 
     model.net_info["height"] = args.reso
     inp_dim = int(model.net_info["height"])
     assert inp_dim % 32 == 0 
     assert inp_dim > 32
+    
+    
+    def getCBconvLayers(model):
+        return list(filter(lambda m: str(type(m)) == "<class 'pycbinfer.conv2d.CBConv2d'>", 
+                           model.modules()))
+    thFactor = 0.5
+    #cbconvModules = evalTools.getCBconvLayers(model)
+#    cbconvModules = evalTools.getCBconvLayers(model.module_list)
+    cbconvModules = getCBconvLayers(model)
+    #set cbinfer parameters
+    cbconvThresholds = list(map(lambda m: m.threshold, cbconvModules))
+    for th, m in zip(cbconvThresholds, cbconvModules): 
+        m.threshold = thFactor*th
 
     model = model.to(device)
-    
-
     model.eval()
     
-    videofile = args.video
-    
-    cap = cv2.VideoCapture(videofile)
-    
+    cap = cv2.VideoCapture(args.video)
     assert cap.isOpened(), 'Cannot capture source'
     
     frames = 0
@@ -145,22 +146,7 @@ if __name__ == '__main__':
                     break
                 continue
             
-            
-
-            
             output = de_letter_box(output, im_dim, inp_dim)
-#            im_dim = im_dim.repeat(output.size(0), 1)
-#            scaling_factor = torch.min(inp_dim/im_dim,1)[0].view(-1,1)
-#            
-#            output[:,[1,3]] -= (inp_dim - scaling_factor*im_dim[:,0].view(-1,1))/2
-#            output[:,[2,4]] -= (inp_dim - scaling_factor*im_dim[:,1].view(-1,1))/2
-#            
-#            output[:,1:5] /= scaling_factor
-#    
-#            for i in range(output.shape[0]):
-#                output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, im_dim[i,0])
-#                output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, im_dim[i,1])
-            
             classes = load_classes('data/coco.names')
             colors = pkl.load(open("pallete", "rb"))
             
@@ -170,6 +156,7 @@ if __name__ == '__main__':
             cv2.imshow("frame", orig_im)
             key = cv2.waitKey(1)
             if key & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
                 break
             frames += 1
             print("FPS of the video is {:5.2f}".format( frames / (time.time() - start)))

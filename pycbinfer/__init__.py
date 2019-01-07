@@ -99,7 +99,8 @@ def convert(m, ignoreList=[], threshold=1e-1): # ignoreList= [model.model_cpu_ne
 def tuneThresholdParameters(vidSeqReader, evalSequences, numFramesPerSeq, 
                             targetGenerator, preprocessor, 
                             modelBaseline, modelTest, evaluator, 
-                            cbModuleList, lossToleranceList, initThreshold=1e-2, thresholdIncrFactor=1.2):
+                            cbModuleList, lossToleranceList, initThreshold=1e-2, 
+                            thresholdIncrFactor=1.2, maxIter=40):
         
     #obtain MUT (model under test) and MREF (model reference)
     #for all sequences in dataset:
@@ -129,15 +130,15 @@ def tuneThresholdParameters(vidSeqReader, evalSequences, numFramesPerSeq,
     
     #greedy front-to-back threshold adjustment
     prevLoss = evaluateModel()
-    for i, m in enumerate(cbModuleList):
-        print('adjusting threshold for module %d of %d' % (i+1, len(cbModuleList)))
+    for mIdx, m in enumerate(cbModuleList):
+        print('adjusting threshold for module %d of %d' % (mIdx+1, len(cbModuleList)))
         m.threshold = initThreshold # initialize threshold value
-        while True:
+        for i in range(maxIter):
             # increase th while loss ok. Once insufficient, take 1 step back.
             m.threshold *= thresholdIncrFactor 
             loss = evaluateModel()
-            print('. (%f < %f + %f)' % (loss,prevLoss,lossToleranceList[i],))
-            if loss - prevLoss > lossToleranceList[i]:
+            print('. (%f < %f + %f) [iter: %d]' % (loss,prevLoss,lossToleranceList[mIdx],i))
+            if loss - prevLoss > lossToleranceList[mIdx]:
                 m.threshold /= thresholdIncrFactor 
                 break
         prevLoss = evaluateModel()
